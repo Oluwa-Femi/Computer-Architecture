@@ -1,104 +1,116 @@
 """CPU functionality."""
 
 import sys
-import os
 
-HTL = 0b00000001
-LDI = 0b10000010
-PRN = 0b01000111
-MUL = 0b10100010
+HLT = 0b00000001
+# LDI = 0b10000010
+# PRN = 0b01000111
+# MUL = 0b10100010
+
 
 class CPU:
     """Main CPU class."""
 
     def __init__(self):
         """Construct a new CPU."""
-        self.reg = [0] * 8
         self.ram = [0] * 256
+        self.reg = [0] * 8
         self.pc = 0
-        self.fl = 0
 
-    def write_program_to_memory(self, program_file):
-        address = 0
-        with open(os.path.join(sys.path[0], program_file), 'r') as file:
-            for line in file:
-                line_value = line.split()
+        self.branchtable = {}
+        self.branch_operations()
+        # initialize stack pointer
+        self.stack_pointer = 0xF3
+    #Branch ops
+    def LDI(self, a, b):
+        self.reg[a] = b
+        self.pc += 3
 
-                # if able to change into an integer with a binary value
-                # add it to ram
-                try:
-                    binary_instruction = int(line_value[0], 2)
+    def MUL(self, a, b):
+        self.alu('MUL', a, b)
+        self.pc += 3
 
-                    # add file to memory list
-                    if address < 257:
-                        self.ram[address] = binary_instruction
-                        address += 1
+    def PRN(self, a, b):
+        print(self.reg[a])
+        self.pc += 2
 
-                # if tried failed, continue to next line
-                except:
-                    continue
-        if not file:
-            print('no data in file')
-            program = [HTL]
+# Stack ops
+    def POP(self, a, b):
+        stack_value = self.ram[self.stack_pointer]
+        self.reg[a] = stack_value
+        # increase pointer once we get to 0xFF because we cant reach top of stack
+        if self.stack_pointer != 0xFF:
+            self.stack_pointer += 1
+        self.pc += 2
 
-    def load(self):
+    def PUSH(self, a, b):
+        # move stack pointer down
+        self.stack_pointer -= 1
+        # get value from register
+        val = self.reg[a]
+        # insert value onto stack
+        self.ram_write(self.stack_pointer, val)
+        self.pc += 2
+
+    # populate branchtable
+    def branch_operations(self):
+        self.branchtable[0b10000010] = self.LDI
+        self.branchtable[0b01000111] = self.PRN
+        self.branchtable[0b10100010] = self.MUL
+        self.branchtable[0b01000110] = self.POP
+        self.branchtable[0b01000101] = self.PUSH
+
+    # returns value at the address in memory
+    def ram_read(self, address):
+        return self.ram[address]
+
+    def ram_write(self, address, value):
+        self.ram[address] = value
+
+    def load(self, arg):
         """Load a program into memory."""
-        args = sys.argv
 
-        if len(args) > 1:
-            program_file = args[1]
-            try:
-                self.write_program_to_memory(program_file)
-            except:
-                print('Unexpected error: ', sys.exc_info()[0])
-        else:
-            print(
-                'too few arguments, please choose a program to run: "python3 ls8.py examples/program_file.ls8"')
+        program = []
+        try:
+                address = 0
+                with open(arg[1]) as f:
+                    for line in f:
+                        # split before comment
+                        # convert to a number splitting and stripping
+                        num = line.split('#')[0].strip()
+                        if num == '':
+                            continue  # ignore blank lines
 
-       
-    def ram_read(self, MAR):
-        '''
-        Returns what is stored at the given address.
-        '''
-        if MAR < len(self.ram):
-            return self.ram[MAR]
-        else:
-            raise IndexError
+                        # print num
+                        value = int(num, 2)  # ,2
+                        program.append(value)
 
-    def ram_write(self, MAR, MDR):
-        '''
-        Writes the given value to the address given.
-        '''
-        if MAR < len(self.ram):
-            self.ram[MAR] = MDR
-        else:
-            raise IndexError
+        except FileNotFoundError:
+            print(f'{arg[0]}: {arg[1]} not found')
+            sys.exit(2)
 
+        # store val in memory at the given address
+        for instruction in program:
+            self.ram[address] = instruction
+            address += 1
+        
     def alu(self, op, reg_a, reg_b):
         """ALU operations."""
-
         if op == "ADD":
             self.reg[reg_a] += self.reg[reg_b]
-        #elif op == "SUB": etc
-        elif op == "MUL":
+        # elif op == "SUB": etc
+        elif op == 'MUL':
             self.reg[reg_a] *= self.reg[reg_b]
         else:
             raise Exception("Unsupported ALU operation")
-
-    def ops(self, op, reg_a, reg_b):
-        '''OPS operations.'''
-        pass
 
     def trace(self):
         """
         Handy function to print out the CPU state. You might want to call this
         from run() if you need help debugging.
         """
-
         print(f"TRACE: %02X | %02X %02X %02X |" % (
             self.pc,
-            #self.fl,
-            #self.ie,
             self.ram_read(self.pc),
             self.ram_read(self.pc + 1),
             self.ram_read(self.pc + 2)
@@ -106,53 +118,24 @@ class CPU:
 
         for i in range(8):
             print(" %02X" % self.reg[i], end='')
-
         print()
 
     def run(self):
         """Run the CPU."""
-        while True:
-            instruction = bin(self.ram_read(self.pc))
-
-            print('instruction: ', instruction[2:])
-
-            IR = self.ram_read(self.pc)
+        running = True
+        while running:
+            # store data address
+            cmd = self.ram_read(self.pc)
             operand_a = self.ram_read(self.pc + 1)
             operand_b = self.ram_read(self.pc + 2)
-
-            if IR is HTL:
-                self.handle_halt()
-            elif IR is LDI:
-                self.handle_ldi(operand_a, operand_b)
-                self.pc += 2
-            elif IR is PRN:
-                self.handle_print(operand_a)
-                self.pc += 1
-            elif IR is MUL:
-                self.alu(IR, operand_a, operand_b)
-                self.pc += 2
-
-            self.pc += 1
-
-    def handle_halt(self):
-        # cpu reset
-        # for i in range(0, 6):
-        #     self.reg[i] = 0
-        # self.reg[7], self.pc, self.fl, self.ram == 0xF4, 0, 0, 0
-
-        sys.exit(1)
-
-    def handle_print(self, index):
-        '''
-        print numeric value stored at given register
-        '''
-        print(self.reg[index])
-
-    def handle_ldi(self, register_index, value):
-        '''
-        set the value of a register to an integer
-        '''
-        if register_index < len(self.reg):
-            self.reg[register_index] = value
-        else:
-            raise IndexError
+            # halt cpu and exit emulator
+            if cmd == HLT:
+                print('closing run loop')
+                running = False
+                break
+            elif cmd not in self.branchtable:
+                print('unknown instruction')
+                sys.exit(1)
+                
+            else:
+                self.branchtable[cmd](operand_a, operand_b)
