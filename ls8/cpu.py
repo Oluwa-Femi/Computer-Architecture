@@ -3,9 +3,7 @@
 import sys
 
 HLT = 0b00000001
-# LDI = 0b10000010
-# PRN = 0b01000111
-# MUL = 0b10100010
+
 
 
 class CPU:
@@ -19,8 +17,9 @@ class CPU:
 
         self.branchtable = {}
         self.branch_operations()
-        # initialize stack pointer
+        # initialize stack pointer that points to the top element
         self.stack_pointer = 0xF3
+        self.FLG = 0b00000000
     #Branch ops
     def LDI(self, a, b):
         self.reg[a] = b
@@ -28,6 +27,10 @@ class CPU:
 
     def MUL(self, a, b):
         self.alu('MUL', a, b)
+        self.pc += 3
+
+    def CMP(self, a, b):
+        self.alu('CMP', a, b)
         self.pc += 3
 
     def PRN(self, a, b):
@@ -47,11 +50,13 @@ class CPU:
 
 # Stack ops
     def POP(self, a, b):
+         # Retrieve the value from RAM at the address stored in SP, and store that value in the register.
         stack_value = self.ram[self.stack_pointer]
         self.reg[a] = stack_value
         # increase pointer once we get to 0xFF because we cant reach top of stack
         if self.stack_pointer != 0xFF:
             self.stack_pointer += 1
+            # Increment SP
         self.pc += 2
 
     def PUSH(self, a, b):
@@ -67,12 +72,31 @@ class CPU:
         self.alu('ADD', op_a, op_b)
         self.pc += 3
 
+    def JMP(self, a, b):
+        # Set the `PC` to the address stored in the given register.
+        self.pc = self.reg[a]
+    def JEQ(self, a, b):
+        if self.FLG == 0b00000001:
+            self.pc = self.reg[a]
+        else:
+            self.pc += 2
+    def JNE(self, a, b):
+        # If `E` flag is clear (false, 0), jump to the address stored in the given register.
+        if self.FLG != 0b00000001:
+            self.pc = self.reg[a]
+        else:
+            self.pc += 2
+
     # populate branchtable
     def branch_operations(self):
         self.branchtable[0b10000010] = self.LDI
         self.branchtable[0b01000111] = self.PRN
-        self.branchtable[0b10100000] = self.ADD
         self.branchtable[0b10100010] = self.MUL
+        self.branchtable[0b10100111] = self.CMP
+        self.branchtable[0b01010100] = self.JMP
+        self.branchtable[0b01010101] = self.JEQ
+        self.branchtable[0b01010110] = self.JNE
+        self.branchtable[0b10100000] = self.ADD
         self.branchtable[0b01000110] = self.POP
         self.branchtable[0b01000101] = self.PUSH
         self.branchtable[0b01010000] = self.CALL
@@ -116,9 +140,18 @@ class CPU:
         """ALU operations."""
         if op == "ADD":
             self.reg[reg_a] += self.reg[reg_b]
-        # elif op == "SUB": etc
         elif op == 'MUL':
             self.reg[reg_a] *= self.reg[reg_b]
+        elif op == 'CMP':
+            if self.reg[reg_a] > self.reg[reg_b]:
+                # modify sevent bit if a > b
+                self.FLG = 0b00000010
+            if self.reg[reg_a] < self.reg[reg_b]:
+                # modify sixth bit if b < a
+                self.FLG = 0b00000100
+            else:
+                # modfy 8th bit if equal
+                self.FLG = 0b00000001
         else:
             raise Exception("Unsupported ALU operation")
 
